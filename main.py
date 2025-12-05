@@ -1,3 +1,5 @@
+import os
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 # main.py
 from PIL import Image, ImageDraw, ImageFont
 import cv2
@@ -78,6 +80,7 @@ class TVTracker:
             return None, None, None
 
         if math.sqrt(offset_x ** 2 + offset_y ** 2) <= MOVE_THRESHOLD:
+            log.info(f"Perfect alignment detected at center=({center_x:.1f},{center_y:.1f})")
             self.align_complete = True
             self.final_tv_center = (center_x, center_y)
             if not self.verify_alignment(self.final_tv_center, (image_center_x, image_center_y)):
@@ -262,6 +265,7 @@ class TVTracker:
                     self.result_queue.get()
                 self.result_queue.put(processed_frame)
                 if self.align_complete:
+                    log.info("Perfect frame completed..")
                     self.align_complete = False
                     self.x_history.clear()
                     self.y_history.clear()
@@ -270,12 +274,20 @@ class TVTracker:
             except Empty:
                 continue
             except Exception as e:
-                print(f"子线程执行异常: {e}")
-                continue
+                log.error(f"Frame processing failed: {e}")
+                # Fallback: try to put the original frame back to result queue
+                try:
+                    if not self.result_queue.empty():
+                        self.result_queue.get_nowait()
+                    self.result_queue.put(frame)
+                except Exception as e2:
+                    log.error(f"Fallback frame enqueue failed: {e2}")
 
+            continue
     def run(self):
         """Run the main loop for TV tracking"""
         start_time = time.time()
+        is_opend = False
         cap = cv2.VideoCapture(CAMERA_INDEX)
         while time.time() - start_time < 30:
             if cap.isOpened():
