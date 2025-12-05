@@ -23,6 +23,13 @@ from queue import Queue, Empty
 # 配置日志记录器，日志文件位置由 `utils/logger_utils` 提供
 log = setup_logger(log_file=DEFAULT_LOG_FILE)
 
+def calculate_blur_score(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    lap = cv2.Laplacian(gray, cv2.CV_64F)
+    score = lap.var() 
+    return score
+
+
 class TVTracker:
     def __init__(self):
         # 初始化检测器与分类器
@@ -78,6 +85,7 @@ class TVTracker:
 
         # 对齐流程相关（当机械臂到达目标中心点时标记完成）
         self.align_complete = False
+        self.blur_score = 0.0
         self.final_tv_center = None
 
         # 尝试加载字体用于可视化，若失败则使用默认绘制方式
@@ -211,8 +219,15 @@ class TVTracker:
     
     def process_frame(self, frame):
         """Process video frame and execute tracking/control logic (Pipeline)"""
+        self.blur_score = calculate_blur_score(frame)
+        blur_score = self.blur_score
         
-        # 1. 更新并记录 FPS 统计信息
+        if blur_score < BLUR_THRESHOLD:
+            log.info(f"Blur frame detected (score={blur_score:.1f}), skip control")
+            display_frame = frame.copy()
+            display_frame = draw_info_on_frame(display_frame, self)
+            return display_frame
+        # 1. FPS statistics
         update_fps(self)
         
         display_frame = frame.copy()
@@ -233,8 +248,8 @@ class TVTracker:
 
             # 提取 TV 区域用于内容分类
             tv_roi = self.extract_tv_roi(frame, boxes)
-
-            # 3. 异步执行屏幕内容分类：仅在内容变更或强制分类时提交任务
+            
+            # 3. Screen status classification (asynchronous)
             if tv_roi is not None:
                 self.content_changed = self.frame_difference_detector.detect_change(tv_roi)
                 if self.content_changed or self.force_classification:

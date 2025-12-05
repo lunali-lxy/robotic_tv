@@ -42,3 +42,5 @@ MAX_HISTORY = 5
 SEARCH_MOVE_RANGE = 10                     # 搜索时 X 轴移动范围
 SEARCH_MOVE_SPEED = 0.2                    # 搜索时的移动速度因子
 RESET_WAIT_TIME = 3.0                      # 丢失目标多久后进入搜索模式
+
+BLUR_THRESHOLD = 120 
