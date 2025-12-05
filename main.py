@@ -11,7 +11,7 @@ import logging
 from models.classifier import ScreenClassifier, ClassificationWorker
 from control.arm_controller import CorrectArmController
 from utils.frame_utils import FrameDifferenceDetector, visualize_detections, draw_info_on_frame, update_fps
-from utils.logger_utils import setup_logger, DåFAULT_LOG_FILE
+from utils.logger_utils import setup_logger, DEFAULT_LOG_FILE
 
 log = setup_logger(log_file=DEFAULT_LOG_FILE)
 
