@@ -343,13 +343,10 @@ class TVTracker:
         log.info(f"Camera initialized in {duration:.2f} seconds")
         
         # 启动时初始化机械臂到默认位置，给机械臂一定的响应时间
-        log.info("Step2: Initializing robotic arm to default position...")
-        start_time = time.time()
+        log.info("StepsInitializing robotic arm to default position...")
         self.arm_controller.send_command(self.target_x, self.target_y, self.target_z)
         time.sleep(1)
-        duration = time.time() - start_time
-        log.info(f"Robotic arm initialized in {duration:.2f} seconds")
-    
+
         MAX_READ_FAILURES = 30
         consecutive_failures = 0
         while self.running:
