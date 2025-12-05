@@ -229,7 +229,7 @@ class TVTracker:
     
     def run(self):
         """Run the main loop for TV tracking"""
-        start_time = time.time()
+        start_time = time.time() #
         cap = cv2.VideoCapture(CAMERA_INDEX)
         while time.time() - start_time < 30:
             if cap.isOpened():
