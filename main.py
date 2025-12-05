@@ -1,3 +1,5 @@
+import os
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 # main.py
 from PIL import Image, ImageDraw, ImageFont
 import cv2
@@ -12,6 +14,8 @@ from models.classifier import ScreenClassifier, ClassificationWorker
 from control.arm_controller import CorrectArmController
 from utils.frame_utils import FrameDifferenceDetector, visualize_detections, draw_info_on_frame, update_fps
 from utils.logger_utils import setup_logger, DEFAULT_LOG_FILE
+import threading
+from queue import Queue, Empty
 
 log = setup_logger(log_file=DEFAULT_LOG_FILE)
 
@@ -42,11 +46,27 @@ class TVTracker:
         self.frame_count = 0
         self.start_time = time.time()
         self.avg_fps = 0
+        #1205
+        self.frame_queue = Queue(maxsize=1)
+        self.result_queue = Queue(maxsize=1)
+        self.process_thread = threading.Thread(target=self._process_thread_worker, daemon=True)
+        self.process_thread.start()
+        self.align_complete = False
+        self.final_tv_center = None
         try:
             self.font = ImageFont.truetype("arial.ttf", 16)
         except:
             self.font = None
-    
+
+    def verify_alignment(self, tv_center, view_center):
+        if tv_center is None:
+            return False
+
+        dx = tv_center[0] - view_center[0]
+        dy = tv_center[1] - view_center[1]
+        distance = math.sqrt(dx ** 2 + dy ** 2)
+        return distance <= MOVE_THRESHOLD
+
     def calculate_target_position(self, center_x, center_y, tv_w, tv_h):
         """ The target position calculation for the robotic arm """
         image_center_x = IMAGE_WIDTH / 2
@@ -56,9 +76,18 @@ class TVTracker:
         offset_y = center_y - image_center_y
         
         # If the offset is smaller than the threshold, the robotic arm does not move
-        if abs(offset_x) < MOVE_THRESHOLD and abs(offset_y) < MOVE_THRESHOLD:
+        if self.align_complete:
             return None, None, None
-        
+
+        if math.sqrt(offset_x ** 2 + offset_y ** 2) <= MOVE_THRESHOLD:
+            log.info(f"Perfect alignment detected at center=({center_x:.1f},{center_y:.1f})")
+            self.align_complete = True
+            self.final_tv_center = (center_x, center_y)
+            if not self.verify_alignment(self.final_tv_center, (image_center_x, image_center_y)):
+                self.align_complete = False
+            else:
+                return None, None, None
+
         # X axis adjustment: target is to the left (offset_x < 0) -> robotic arm decreases X (move left)
         x_adjust = offset_x / image_center_x * 4
         
@@ -226,10 +255,39 @@ class TVTracker:
         display_frame = draw_info_on_frame(display_frame, self)
         
         return display_frame
-    
+
+    def _process_thread_worker(self):
+        while True:
+            try:
+                frame = self.frame_queue.get(timeout=1.0)
+                processed_frame = self.process_frame(frame)
+                if not self.result_queue.empty():
+                    self.result_queue.get()
+                self.result_queue.put(processed_frame)
+                if self.align_complete:
+                    log.info("Perfect frame completed..")
+                    self.align_complete = False
+                    self.x_history.clear()
+                    self.y_history.clear()
+                    self.z_history.clear()
+                    time.sleep(3600)
+            except Empty:
+                continue
+            except Exception as e:
+                log.error(f"Frame processing failed: {e}")
+                # Fallback: try to put the original frame back to result queue
+                try:
+                    if not self.result_queue.empty():
+                        self.result_queue.get_nowait()
+                    self.result_queue.put(frame)
+                except Exception as e2:
+                    log.error(f"Fallback frame enqueue failed: {e2}")
+
+            continue
     def run(self):
         """Run the main loop for TV tracking"""
-        start_time = time.time() #
+        start_time = time.time()
+        is_opend = False
         cap = cv2.VideoCapture(CAMERA_INDEX)
         while time.time() - start_time < 30:
             if cap.isOpened():
@@ -275,8 +333,13 @@ class TVTracker:
                 frame = cv2.flip(frame, 1)
             
             # Main pipeline call
-            processed_frame = self.process_frame(frame)
-            
+            #processed_frame = self.process_frame(frame)
+            #1205
+            if not self.frame_queue.empty():
+                self.frame_queue.get()
+            self.frame_queue.put(frame)
+            processed_frame = self.result_queue.get(block=True)
+
             cv2.imshow('TV Tracking', processed_frame)
             
             key = cv2.waitKey(1) & 0xFF
